@@ -1,68 +1,94 @@
-<!--
-Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+# csnet-curl
 
-SPDX-License-Identifier: curl
--->
+This a fork of [curl](https://github.com/curl/curl) that enables HTTP/3 over SCION using [csnet](https://github.com/scionproto-contrib/csnet).
 
-# [![curl logo](https://curl.se/logo/curl-logo.svg)](https://curl.se/)
+## Requirements
 
-curl is a command-line tool for transferring data specified with URL syntax.
-Learn how to use curl by reading [the
-manpage](https://curl.se/docs/manpage.html) or [everything
-curl](https://everything.curl.dev/).
+1. Install a release build of csnet: [csnet - Building and Installation](https://github.com/scionproto-contrib/csnet?tab=readme-ov-file#building-and-installation)
+2. Install an SSL backend that works with ngtcp2/curl (e.g, [quictls](https://github.com/quictls/openssl/tree/OpenSSL_1_1_1w+quic))
+3. Install ngtcp2 with:
+    ```bash
+   git clone --recursive https://github.com/ngtcp2/ngtcp2.git
+   cd ngtcp2
+   cmake -DBUILD_TESTING=OFF -DENABLE_LIB_ONLY=ON -DOPENSSL_ROOT_DIR=<QUICTLS_INSTALL_DIR> -B cmake-build
+   cmake --build cmake-build
+   sudo cmake --install cmake-build/
+    ```
+4. Install nghttp3 with:
+    ```bash
+   git clone --recursive https://github.com/ngtcp2/nghttp3
+   cd nghttp3
+   cmake -DENABLE_LIB_ONLY=ON -B cmake-build
+   cmake --build cmake-build
+   sudo cmake --install cmake-build/
+    ```
+5. Install libpsl with:
+    ```bash
+   sudo apt install libpsl-dev
+    ```
+6. Install the [SCION example HTTP/3 server](https://github.com/netsec-ethz/scion-apps/pull/277) with:
+    ```bash
+   sudo apt-get install -y libpam0g-dev
+   git clone https://github.com/koflin/scion-apps.git
+   cd scion-apps
+   git checkout shttp3-server-example
+   make setup_lint
+   make example-shttp3-server
+   openssl req -x509 -newkey rsa -nodes -keyout server.key -out server.cert
+   ```
 
-Find out how to install curl by reading [the INSTALL
-document](https://curl.se/docs/install.html).
+## Building
 
-libcurl is the library curl is using to do its job. It is readily available to
-be used by your software. Read [the libcurl
-manpage](https://curl.se/libcurl/c/libcurl.html) to learn how.
+To build the curl fork run:
+```bash
+cmake -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_INSTALL_RPATH=$ORIGIN/../lib \
+      -DBUILD_STATIC_CURL=ON \
+      -DBUILD_STATIC_LIBS=ON \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DUSE_NGTCP2=ON \
+      -DUSE_SCION=ON \
+      -DSCION_INCLUDE_DIR=<CSNET_INSTALL_DIR>/include \
+      -DSCION_LIBRARY_DIR=<CSNET_INSTALL_DIR>/lib \
+      -DOPENSSL_ROOT_DIR=<QUICTLS_INSTALL_DIR> \
+      -B cmake-build
+      
+cmake --build cmake-build
+```
 
-## Open Source
+## Running the Example
 
-curl is Open Source and is distributed under an MIT-like
-[license](https://curl.se/docs/copyright.html).
+1. **Start the local SCION network**  
+   In the cloned `csnet` repository:
+   ```bash
+   sudo ./scripts/run-testnet.sh
+   ```
 
-## Contact
+2. **Start the SCION example HTTP/3 server**  
+   In the cloned `scion-apps` repository:
+   ```bash
+   sudo SCION_DAEMON_ADDRESS="127.0.0.133:30255" \
+   ./bin/example-shttp3-server -cert server.cert -key server.key
+   ```
+   > Note: The warnings `connection doesn't allow setting of receive buffer size` and `ERROR Unable to extract port from listener` are expected and can be ignored.
 
-Contact us on a suitable [mailing list](https://curl.se/mail/) or
-use GitHub [issues](https://github.com/curl/curl/issues)/
-[pull requests](https://github.com/curl/curl/pulls)/
-[discussions](https://github.com/curl/curl/discussions).
+3. **Custom Topology**  
+   If you are not using the default topology, overwrite the `topology.json` file in this repository with your modified version.
 
-All contributors to the project are listed in [the THANKS
-document](https://curl.se/docs/thanks.html).
+4. **Make an HTTP/3 SCION request**
 
-## Commercial support
+   - **Using the example program**
+     ```bash
+     cmake --build cmake-build --target curl-example-http3-scion
+     ./cmake-build/docs/examples/http3-scion
+     ```
 
-For commercial support, maybe private and dedicated help with your problems or
-applications using (lib)curl visit [the support page](https://curl.se/support.html).
-
-## Website
-
-Visit the [curl website](https://curl.se/) for the latest news and downloads.
-
-## Source code
-
-Download the latest source from the Git server:
-
-    git clone https://github.com/curl/curl.git
-
-## Security problems
-
-Report suspected security problems via [our HackerOne
-page](https://hackerone.com/curl) and not in public.
-
-## Notice
-
-curl contains pieces of source code that is Copyright (c) 1998, 1999 Kungliga
-Tekniska Högskolan. This notice is included here to comply with the
-distribution terms.
-
-## Backers
-
-Thank you to all our backers :pray: [Become a backer](https://opencollective.com/curl#section-contribute).
-
-## Sponsors
-
-Support this project by becoming a [sponsor](https://curl.se/sponsors.html).
+   - **Using the command-line curl tool**
+     ```bash
+     ./cmake-build/src/curl \
+     --scion-dst-ia "2-ff00:0:221" \
+     --scion-topology-path "topology.json" \
+     --http3-only \
+     --insecure \
+     https://127.0.0.132/json
+     ```
